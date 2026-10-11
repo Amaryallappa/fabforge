@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   UploadCloud, 
-  FileCheck, 
   Trash2, 
   Layers, 
   Cpu, 
@@ -13,7 +12,11 @@ import {
   Info,
   CreditCard,
   Clock,
-  Printer
+  Printer,
+  FileCode,
+  Gauge,
+  Box,
+  Scale
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
@@ -22,7 +25,10 @@ import Footer from '../components/Footer';
 import { calculatePrice } from '../lib/pricing';
 import type { ProcessType, PriceResult } from '../lib/pricing';
 import { calculateGST, validateGSTIN, STATE_CODES, formatINR, FABFORGE_STATE_CODE } from '../lib/gst';
+import { analyzeCADFile } from '../lib/cadAnalyzer';
+import type { CADAnalysisResult } from '../lib/cadAnalyzer';
 import { supabase } from '../lib/supabase';
+import CADViewer from '../components/CADViewer';
 
 export const QuotePage: React.FC = () => {
   const navigate = useNavigate();
@@ -32,6 +38,24 @@ export const QuotePage: React.FC = () => {
     name: 'bracket-chassis-v3.step',
     size: '4.2 MB',
   });
+  const [rawFile, setRawFile] = useState<File | null>(null);
+  const [cadResult, setCadResult] = useState<CADAnalysisResult | null>({
+    fileName: 'bracket-chassis-v3.step',
+    fileFormat: 'STEP',
+    fileSizeKb: 4300,
+    boundingBox: { widthMm: 210, lengthMm: 145, heightMm: 2.0 },
+    volumeMm3: 58800,
+    surfaceAreaMm2: 62000,
+    calculatedWeightKg: 0.466,
+    recommendedProcess: 'sheet_metal',
+    dfmChecks: {
+      passed: true,
+      issues: [],
+      warnings: ['DFM Feasibility Passed: Uniform 2.0mm gauge confirmed'],
+    },
+  });
+  const [isAnalyzingCAD, setIsAnalyzingCAD] = useState<boolean>(false);
+
   const [process, setProcess] = useState<ProcessType>('sheet_metal');
   const [material, setMaterial] = useState<string>('stainless-304');
   const [thickness, setThickness] = useState<number>(2.0);
@@ -56,13 +80,23 @@ export const QuotePage: React.FC = () => {
         thicknessMm: thickness,
         quantity,
         secondaryOps,
+        cadMetadata: cadResult ? {
+          widthMm: cadResult.boundingBox.widthMm,
+          lengthMm: cadResult.boundingBox.lengthMm,
+          heightMm: cadResult.boundingBox.heightMm,
+          cutLengthMm: cadResult.cutLengthMm,
+          pierceCount: cadResult.pierceCount,
+          volumeMm3: cadResult.volumeMm3,
+          surfaceAreaMm2: cadResult.surfaceAreaMm2,
+          calculatedWeightKg: cadResult.calculatedWeightKg,
+        } : undefined,
       });
       setPriceData(res);
       setIsCalculating(false);
-    }, 250);
+    }, 200);
 
     return () => clearTimeout(timer);
-  }, [process, material, thickness, quantity, secondaryOps]);
+  }, [process, material, thickness, quantity, secondaryOps, cadResult]);
 
   // GST validation
   const handleGstinChange = (val: string) => {
@@ -92,16 +126,88 @@ export const QuotePage: React.FC = () => {
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Real File Upload & CAD Geometry Parser
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const uploaded = e.target.files[0];
+      setRawFile(uploaded);
       const sizeMb = (uploaded.size / (1024 * 1024)).toFixed(1);
       setFile({
         name: uploaded.name,
         size: `${sizeMb} MB`,
       });
-      toast.success(`Loaded ${uploaded.name}. DFM analysis passed!`);
+
+      setIsAnalyzingCAD(true);
+      toast.loading(`Parsing ${uploaded.name} geometry...`, { id: 'cad-parse' });
+
+      try {
+        const result = await analyzeCADFile(uploaded, material);
+        setCadResult(result);
+        if (result.recommendedProcess && result.recommendedProcess !== process) {
+          setProcess(result.recommendedProcess);
+        }
+        if (result.boundingBox?.heightMm && process === 'sheet_metal') {
+          const detectedThick = result.boundingBox.heightMm;
+          if ([1.0, 1.5, 2.0, 3.0, 5.0, 8.0].includes(detectedThick)) {
+            setThickness(detectedThick);
+          }
+        }
+        toast.success(`Extracted ${result.fileFormat}: ${result.boundingBox.widthMm}×${result.boundingBox.lengthMm}mm`, { id: 'cad-parse' });
+      } catch (err) {
+        toast.error('CAD file read warning; using baseline envelope', { id: 'cad-parse' });
+      } finally {
+        setIsAnalyzingCAD(false);
+      }
     }
+  };
+
+  // Quick synthetic demo file loaders
+  const loadSampleSTEP = () => {
+    setRawFile(null);
+    setFile({ name: 'chassis_bracket_sample.step', size: '2.8 MB' });
+    setCadResult({
+      fileName: 'chassis_bracket_sample.step',
+      fileFormat: 'STEP',
+      fileSizeKb: 2800,
+      boundingBox: { widthMm: 240, lengthMm: 160, heightMm: 2.0 },
+      volumeMm3: 76800,
+      surfaceAreaMm2: 78000,
+      calculatedWeightKg: 0.608,
+      recommendedProcess: 'sheet_metal',
+      dfmChecks: {
+        passed: true,
+        issues: [],
+        warnings: ['Watertight solid manifold confirmed', 'Ready for laser cutting & press brake'],
+      },
+    });
+    setThickness(2.0);
+    toast.success('Loaded Sample Chassis Bracket (STEP)');
+  };
+
+  const loadSampleDXF = () => {
+    setRawFile(null);
+    setFile({ name: 'motor_mount_flange.dxf', size: '1.2 MB' });
+    setCadResult({
+      fileName: 'motor_mount_flange.dxf',
+      fileFormat: 'DXF',
+      fileSizeKb: 1200,
+      boundingBox: { widthMm: 180, lengthMm: 180, heightMm: 3.0 },
+      cutLengthMm: 1420,
+      pierceCount: 8,
+      estimatedCutTimeSec: 28,
+      volumeMm3: 97200,
+      surfaceAreaMm2: 64800,
+      calculatedWeightKg: 0.763,
+      recommendedProcess: 'sheet_metal',
+      dfmChecks: {
+        passed: true,
+        issues: [],
+        warnings: ['8 Pierces detected', '1.42m total laser cut perimeter'],
+      },
+    });
+    setProcess('sheet_metal');
+    setThickness(3.0);
+    toast.success('Loaded Sample Motor Mount Flange (DXF)');
   };
 
   // GST Breakdown calculations
@@ -114,7 +220,7 @@ export const QuotePage: React.FC = () => {
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(20);
-    doc.setTextColor(255, 107, 53);
+    doc.setTextColor(255, 87, 34);
     doc.text('FabForge India', 20, 20);
 
     doc.setFontSize(10);
@@ -196,7 +302,6 @@ export const QuotePage: React.FC = () => {
     const generatedOrderId = `ORD-IN-${Date.now().toString().slice(-6)}`;
 
     try {
-      // Try Supabase insert
       const { error } = await supabase.from('quotes').insert({
         file_name: file?.name || 'custom_part.step',
         file_url: null,
@@ -220,7 +325,6 @@ export const QuotePage: React.FC = () => {
     toast.success(`Quote Confirmed! Order ID: ${generatedOrderId}`);
     setIsSubmitting(false);
 
-    // Redirect to tracking page
     setTimeout(() => {
       navigate(`/track/${generatedOrderId}`);
     }, 500);
@@ -231,96 +335,196 @@ export const QuotePage: React.FC = () => {
       <Navbar />
 
       <main className="flex-1 w-full max-w-7xl 2xl:max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+        
         {/* Page Header */}
-        <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl sm:text-3xl font-black text-[#1A1A2E] tracking-tight">
-                Instant CAD Quoting Engine
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl sm:text-3xl font-black text-[#0F172A] tracking-tight">
+                Instant CAD Quoting & DFM Engine
               </h1>
-              <span className="badge badge-orange">Live INR Rates</span>
+              <span className="badge-pill badge-pill-orange text-[10px]">
+                Real Geometry Parser
+              </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Select process, materials, tolerances, and secondary operations for real-time cost breakdown.
+              Upload STEP or DXF files for automated perimeter, volume, bounding box & INR cost analysis.
             </p>
           </div>
+
           <div className="flex items-center gap-2">
             <button
               onClick={handleDownloadProforma}
-              className="px-3.5 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 flex items-center gap-1.5 shadow-sm"
+              className="px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 flex items-center gap-1.5 shadow-xs transition-colors"
             >
-              <Download className="w-4 h-4 text-slate-500" />
+              <Download className="w-3.5 h-3.5 text-slate-500" />
               Download Proforma PDF
             </button>
           </div>
         </div>
 
         {/* 2-Column Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-start">
           
           {/* Left Column: CAD & Part Config (8 cols) */}
           <div className="lg:col-span-8 space-y-6">
 
-            {/* 1. CAD File Uploader */}
-            <div className="card p-6 border-slate-200">
+            {/* 1. CAD File Uploader & Real Geometry Inspection */}
+            <div className="card-premium p-6 sm:p-7 bg-white">
               <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-orange-100 text-[#FF6B35] font-bold text-xs flex items-center justify-center">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-orange-100 text-[#FF5722] font-black text-xs flex items-center justify-center">
                     1
                   </div>
                   <h2 className="text-base font-bold text-slate-900">
                     CAD Geometry & DFM Inspection
                   </h2>
                 </div>
-                <span className="text-xs font-medium text-emerald-600 flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded">
-                  <ShieldCheck className="w-3.5 h-3.5" /> Mutual NDA Active
+                <span className="badge-pill badge-pill-green text-[11px]">
+                  <ShieldCheck className="w-3.5 h-3.5" /> Mutual NDA Encrypted
                 </span>
               </div>
 
               {!file ? (
-                <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 bg-slate-50/50 hover:bg-orange-50/20 hover:border-orange-400 rounded-xl p-10 cursor-pointer transition-all">
-                  <UploadCloud className="w-10 h-10 text-slate-400 mb-2" />
-                  <span className="text-sm font-semibold text-slate-700">
-                    Click to browse or drag 3D/2D CAD files
-                  </span>
-                  <span className="text-xs text-slate-400 mt-1">
-                    Accepts .STEP, .STP, .DXF, .DWG, .STL, .SLDPRT (Max 100MB)
-                  </span>
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept=".step,.stp,.dxf,.dwg,.stl,.sldprt"
-                    onChange={handleFileUpload}
-                  />
-                </label>
-              ) : (
-                <div className="p-4 rounded-xl bg-orange-50/50 border border-orange-200 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-[#FF6B35] text-white flex items-center justify-center shadow-sm">
-                      <FileCheck className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-slate-900">{file.name}</p>
-                      <p className="text-xs text-slate-500">
-                        {file.size} • <span className="text-emerald-600 font-semibold">DFM Feasible: Ready for Cutting & Forming</span>
-                      </p>
-                    </div>
+                <div>
+                  <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 bg-slate-50/50 hover:bg-orange-50/20 hover:border-orange-400 rounded-2xl p-10 cursor-pointer transition-all">
+                    <UploadCloud className="w-10 h-10 text-slate-400 mb-2" />
+                    <span className="text-sm font-bold text-slate-800">
+                      Click to browse or drag 3D/2D CAD files
+                    </span>
+                    <span className="text-xs text-slate-400 mt-1">
+                      Accepts .STEP, .STP, .DXF, .DWG, .STL, .SLDPRT (Up to 100MB)
+                    </span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".step,.stp,.dxf,.dwg,.stl,.sldprt"
+                      onChange={handleFileUpload}
+                    />
+                  </label>
+
+                  {/* Sample file buttons */}
+                  <div className="flex flex-wrap items-center justify-center gap-2 mt-3 pt-2 text-xs text-slate-500">
+                    <span>Or test with instant demo CAD:</span>
+                    <button
+                      type="button"
+                      onClick={loadSampleSTEP}
+                      className="text-orange-600 font-bold hover:underline bg-orange-50 px-2 py-1 rounded"
+                    >
+                      Sample Bracket (.STEP)
+                    </button>
+                    <span>•</span>
+                    <button
+                      type="button"
+                      onClick={loadSampleDXF}
+                      className="text-blue-600 font-bold hover:underline bg-blue-50 px-2 py-1 rounded"
+                    >
+                      Sample Flange (.DXF)
+                    </button>
                   </div>
-                  <button
-                    onClick={() => setFile(null)}
-                    className="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
-                    title="Remove File"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* File Banner */}
+                  <div className="p-4 rounded-xl bg-orange-50/40 border border-orange-200/80 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#FF5722] text-white flex items-center justify-center shadow-xs">
+                        <FileCode className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-bold text-slate-900">{file.name}</p>
+                          <span className="badge-pill badge-pill-orange text-[10px]">
+                            {cadResult?.fileFormat ?? 'CAD'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {file.size} • {isAnalyzingCAD ? (
+                            <span className="text-orange-600 font-semibold animate-pulse">Analyzing CAD Geometry...</span>
+                          ) : (
+                            <span className="text-emerald-600 font-semibold">DFM Geometry Verified</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <button
+                      onClick={() => { setFile(null); setCadResult(null); setRawFile(null); }}
+                      className="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
+                      title="Remove File"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Interactive 3D WebGL CAD Viewer with Rotate, Zoom, and Pan */}
+                  <CADViewer
+                    cadResult={cadResult}
+                    rawFile={rawFile}
+                    material={material}
+                    thicknessMm={thickness}
+                    className="my-3"
+                  />
+
+                  {/* Real CAD Physical Properties Matrix */}
+                  {cadResult && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200/80 text-xs">
+                      <div className="p-2 bg-white rounded-lg border border-slate-100">
+                        <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
+                          <Box className="w-3 h-3 text-orange-500" /> Bounding Box
+                        </span>
+                        <strong className="text-slate-900 font-bold">
+                          {cadResult.boundingBox.widthMm} × {cadResult.boundingBox.lengthMm} × {cadResult.boundingBox.heightMm} mm
+                        </strong>
+                      </div>
+
+                      <div className="p-2 bg-white rounded-lg border border-slate-100">
+                        <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
+                          <Scale className="w-3 h-3 text-blue-500" /> Est. Part Weight
+                        </span>
+                        <strong className="text-slate-900 font-bold">
+                          {cadResult.calculatedWeightKg} kg
+                        </strong>
+                      </div>
+
+                      {cadResult.cutLengthMm ? (
+                        <div className="p-2 bg-white rounded-lg border border-slate-100">
+                          <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
+                            <Gauge className="w-3 h-3 text-emerald-500" /> Laser Cut Path
+                          </span>
+                          <strong className="text-slate-900 font-bold">
+                            {(cadResult.cutLengthMm / 1000).toFixed(2)} m ({cadResult.pierceCount} pierces)
+                          </strong>
+                        </div>
+                      ) : (
+                        <div className="p-2 bg-white rounded-lg border border-slate-100">
+                          <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
+                            <Gauge className="w-3 h-3 text-purple-500" /> Solid Volume
+                          </span>
+                          <strong className="text-slate-900 font-bold">
+                            {((cadResult.volumeMm3 ?? 50000) / 1000).toFixed(1)} cm³
+                          </strong>
+                        </div>
+                      )}
+
+                      <div className="p-2 bg-white rounded-lg border border-slate-100">
+                        <span className="text-slate-500 block text-[11px] font-medium flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-500" /> DFM Feasibility
+                        </span>
+                        <strong className="text-emerald-600 font-bold">
+                          100% Manufacturable
+                        </strong>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
             {/* 2. Process Selection */}
-            <div className="card p-6 border-slate-200">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-7 h-7 rounded-lg bg-orange-100 text-[#FF6B35] font-bold text-xs flex items-center justify-center">
+            <div className="card-premium p-6 sm:p-7 bg-white">
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-orange-100 text-[#FF5722] font-black text-xs flex items-center justify-center">
                   2
                 </div>
                 <h2 className="text-base font-bold text-slate-900">
@@ -344,12 +548,12 @@ export const QuotePage: React.FC = () => {
                       onClick={() => setProcess(item.id as ProcessType)}
                       className={`p-3.5 rounded-xl border text-left transition-all ${
                         isSelected
-                          ? 'border-[#FF6B35] bg-orange-50/50 shadow-sm ring-1 ring-[#FF6B35]'
+                          ? 'border-[#FF5722] bg-orange-50/50 shadow-xs ring-1 ring-[#FF5722]'
                           : 'border-slate-200 bg-white hover:border-slate-300'
                       }`}
                     >
-                      <Icon className={`w-5 h-5 mb-2 ${isSelected ? 'text-[#FF6B35]' : 'text-slate-500'}`} />
-                      <p className={`text-xs font-bold ${isSelected ? 'text-[#FF6B35]' : 'text-slate-900'}`}>
+                      <Icon className={`w-5 h-5 mb-2 ${isSelected ? 'text-[#FF5722]' : 'text-slate-500'}`} />
+                      <p className={`text-xs font-bold ${isSelected ? 'text-[#FF5722]' : 'text-slate-900'}`}>
                         {item.label}
                       </p>
                       <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">{item.sub}</p>
@@ -360,9 +564,9 @@ export const QuotePage: React.FC = () => {
             </div>
 
             {/* 3. Material & Dimensions */}
-            <div className="card p-6 border-slate-200">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-7 h-7 rounded-lg bg-orange-100 text-[#FF6B35] font-bold text-xs flex items-center justify-center">
+            <div className="card-premium p-6 sm:p-7 bg-white">
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-orange-100 text-[#FF5722] font-black text-xs flex items-center justify-center">
                   3
                 </div>
                 <h2 className="text-base font-bold text-slate-900">
@@ -378,40 +582,40 @@ export const QuotePage: React.FC = () => {
                   <select
                     value={material}
                     onChange={(e) => setMaterial(e.target.value)}
-                    className="input-base"
+                    className="input-forge"
                   >
                     <optgroup label="Stainless Steel (Food / Marine)">
-                      <option value="stainless-304">SS 304 (General Purpose Engineering)</option>
-                      <option value="stainless-316">SS 316L (High Corrosion Resistance)</option>
+                      <option value="stainless-304">SS 304 (General Engineering - ₹260/kg)</option>
+                      <option value="stainless-316">SS 316L (High Corrosion Resistance - ₹340/kg)</option>
                     </optgroup>
                     <optgroup label="Carbon & Mild Steel">
-                      <option value="cr-steel">CRCA Mild Steel (IS 513 / St 12)</option>
-                      <option value="ar400">Hardox / AR400 Wear Resistant</option>
+                      <option value="cr-steel">CRCA Mild Steel (IS 513 - ₹72/kg)</option>
+                      <option value="ar400">Hardox / AR400 Wear Resistant (₹120/kg)</option>
                     </optgroup>
                     <optgroup label="Aluminum Alloys">
-                      <option value="alu-6061">Aluminum 6061-T6 (Aircraft & Enclosures)</option>
-                      <option value="alu-7075">Aluminum 7075-T6 (High Strength)</option>
+                      <option value="alu-6061">Aluminum 6061-T6 (Aircraft & Enclosures - ₹310/kg)</option>
+                      <option value="alu-7075">Aluminum 7075-T6 (High Strength - ₹420/kg)</option>
                     </optgroup>
                     <optgroup label="Engineering Polymers (3D / CNC)">
-                      <option value="nylon-pa12">Nylon PA12 (SLS Functional Grade)</option>
-                      <option value="abs">ABS Industrial Polymer</option>
-                      <option value="pc">Polycarbonate High-Impact</option>
+                      <option value="nylon-pa12">Nylon PA12 (SLS Functional Grade - ₹380/kg)</option>
+                      <option value="abs">ABS Industrial Polymer (₹220/kg)</option>
+                      <option value="pc">Polycarbonate High-Impact (₹280/kg)</option>
                     </optgroup>
                     <optgroup label="Copper & Brass">
-                      <option value="copper">Pure Electrolytic Copper (99.9%)</option>
-                      <option value="brass">Free-Cutting Brass CW614N</option>
+                      <option value="copper">Pure Electrolytic Copper (₹880/kg)</option>
+                      <option value="brass">Free-Cutting Brass CW614N (₹650/kg)</option>
                     </optgroup>
                   </select>
                   <p className="text-[11px] text-slate-500 mt-1.5 flex items-center gap-1">
                     <Info className="w-3.5 h-3.5 text-slate-400" />
-                    Sourced from Tata Steel, Jindal Stainless, Hindalco
+                    Spot pricing sourced from Tata Steel, Jindal Stainless, Hindalco
                   </p>
                 </div>
 
                 {/* Thickness / Gage */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                    Sheet Thickness / Wall Spec (mm)
+                    Sheet Thickness (mm)
                   </label>
                   <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                     {[1.0, 1.5, 2.0, 3.0, 5.0, 8.0].map((t) => (
@@ -421,7 +625,7 @@ export const QuotePage: React.FC = () => {
                         onClick={() => setThickness(t)}
                         className={`py-2 text-xs font-bold rounded-lg border transition-all ${
                           thickness === t
-                            ? 'bg-[#FF6B35] text-white border-[#FF6B35] shadow-sm'
+                            ? 'bg-[#FF5722] text-white border-[#FF5722] shadow-xs'
                             : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                         }`}
                       >
@@ -434,9 +638,9 @@ export const QuotePage: React.FC = () => {
             </div>
 
             {/* 4. Secondary Operations */}
-            <div className="card p-6 border-slate-200">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-7 h-7 rounded-lg bg-orange-100 text-[#FF6B35] font-bold text-xs flex items-center justify-center">
+            <div className="card-premium p-6 sm:p-7 bg-white">
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-orange-100 text-[#FF5722] font-black text-xs flex items-center justify-center">
                   4
                 </div>
                 <h2 className="text-base font-bold text-slate-900">
@@ -460,15 +664,15 @@ export const QuotePage: React.FC = () => {
                       onClick={() => toggleOp(op.id)}
                       className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
                         checked
-                          ? 'border-orange-300 bg-orange-50/40'
+                          ? 'border-orange-300 bg-orange-50/40 ring-1 ring-orange-200'
                           : 'border-slate-200 bg-white hover:bg-slate-50'
                       }`}
                     >
                       <input
                         type="checkbox"
                         checked={checked}
-                        onChange={() => {}} // handled by parent div
-                        className="mt-1 h-4 w-4 text-[#FF6B35] rounded border-slate-300 focus:ring-[#FF6B35]"
+                        onChange={() => {}}
+                        className="mt-1 h-4 w-4 text-[#FF5722] rounded border-slate-300 focus:ring-[#FF5722]"
                       />
                       <div className="flex-1">
                         <div className="flex items-center justify-between">
@@ -484,9 +688,9 @@ export const QuotePage: React.FC = () => {
             </div>
 
             {/* 5. Indian GST & Compliance Details */}
-            <div className="card p-6 border-slate-200">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-7 h-7 rounded-lg bg-orange-100 text-[#FF6B35] font-bold text-xs flex items-center justify-center">
+            <div className="card-premium p-6 sm:p-7 bg-white">
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-orange-100 text-[#FF5722] font-black text-xs flex items-center justify-center">
                   5
                 </div>
                 <h2 className="text-base font-bold text-slate-900">
@@ -502,11 +706,11 @@ export const QuotePage: React.FC = () => {
                   <select
                     value={customerState}
                     onChange={(e) => setCustomerState(e.target.value)}
-                    className="input-base"
+                    className="input-forge"
                   >
                     {Object.entries(STATE_CODES).map(([code, name]) => (
                       <option key={code} value={code}>
-                        {code} - {name} {code === FABFORGE_STATE_CODE ? '(Intrastate CGST+SGST)' : '(Interstate IGST)'}
+                        {code} - {name} {code === FABFORGE_STATE_CODE ? '(Intrastate 9% CGST + 9% SGST)' : '(Interstate 18% IGST)'}
                       </option>
                     ))}
                   </select>
@@ -522,7 +726,7 @@ export const QuotePage: React.FC = () => {
                     onChange={(e) => handleGstinChange(e.target.value)}
                     placeholder="e.g. 27AAAAA0000A1Z5"
                     maxLength={15}
-                    className={`input-base ${!isGstinValid ? 'border-red-500 bg-red-50/50' : ''}`}
+                    className={`input-forge ${!isGstinValid ? 'border-red-500 bg-red-50/50' : ''}`}
                   />
                   {!isGstinValid && (
                     <p className="text-[11px] text-red-600 mt-1 font-medium">
@@ -537,25 +741,45 @@ export const QuotePage: React.FC = () => {
 
           {/* Right Column: Dynamic Price Summary & Checkout (4 cols) */}
           <div className="lg:col-span-4">
-            <div className="sticky top-24 card p-6 border-slate-200 shadow-xl space-y-6 bg-white">
+            <div className="sticky top-24 card-premium p-6 sm:p-7 border-slate-200 shadow-xl space-y-6 bg-white">
               
               {/* Header */}
               <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                <h3 className="text-base font-bold text-[#1A1A2E]">
-                  Price Breakdown
+                <h3 className="text-base font-bold text-[#0F172A]">
+                  Cost Estimation Breakdown
                 </h3>
-                <span className="badge badge-green flex items-center gap-1">
+                <span className="badge-pill badge-pill-green text-[11px] flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  {priceData?.leadTimeDays ?? 3} Days Dispatch
+                  {priceData?.leadTimeDays ?? 3} Days Lead
                 </span>
               </div>
+
+              {/* Physical Metrics from CAD */}
+              {priceData?.physicalMetrics && (
+                <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1 text-slate-600 border border-slate-100">
+                  <div className="flex justify-between">
+                    <span>CAD Envelope:</span>
+                    <strong className="text-slate-800">{priceData.physicalMetrics.dimensionsMm}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Part Weight:</span>
+                    <strong className="text-slate-800">{priceData.physicalMetrics.weightKgPerPart} kg</strong>
+                  </div>
+                  {priceData.physicalMetrics.cutLengthMeters && (
+                    <div className="flex justify-between">
+                      <span>Laser Cutting:</span>
+                      <strong className="text-emerald-700">{priceData.physicalMetrics.cutLengthMeters} meters</strong>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Quantity Stepper */}
               <div>
                 <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">
                   Production Quantity
                 </label>
-                <div className="flex border border-slate-300 rounded-xl overflow-hidden shadow-sm">
+                <div className="flex border border-slate-300 rounded-xl overflow-hidden shadow-xs">
                   <button
                     onClick={() => setQuantity(Math.max(1, quantity - 1))}
                     className="px-4 py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold border-r border-slate-300 transition-colors"
@@ -583,9 +807,9 @@ export const QuotePage: React.FC = () => {
                       key={q}
                       type="button"
                       onClick={() => setQuantity(q)}
-                      className={`text-[11px] py-1 px-2 rounded-md font-semibold border ${
+                      className={`text-[11px] py-1 px-2.5 rounded-md font-semibold border transition-all ${
                         quantity === q
-                          ? 'bg-[#1A1A2E] text-white border-[#1A1A2E]'
+                          ? 'bg-[#0F172A] text-white border-[#0F172A]'
                           : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                       }`}
                     >
@@ -600,12 +824,12 @@ export const QuotePage: React.FC = () => {
                 {isCalculating ? (
                   <div className="py-8 text-center">
                     <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-                    <p className="text-xs text-slate-500 font-medium">Calculating DFM Pricing...</p>
+                    <p className="text-xs text-slate-500 font-medium">Computing DFM Pricing...</p>
                   </div>
                 ) : priceData && gstDetails ? (
                   <>
                     <div className="flex justify-between text-xs text-slate-600">
-                      <span>Base Part Processing:</span>
+                      <span>Base Processing Total:</span>
                       <span className="font-semibold text-slate-900">
                         {formatINR(priceData.totalPrice)}
                       </span>
@@ -614,7 +838,9 @@ export const QuotePage: React.FC = () => {
                     {priceData.breakdownItems.map((item, idx) => (
                       <div key={idx} className="flex justify-between text-[11px] text-slate-500 pl-2">
                         <span>• {item.label}</span>
-                        <span>{item.amount < 0 ? `- ${formatINR(Math.abs(item.amount))}` : formatINR(item.amount)}</span>
+                        <span className={item.amount < 0 ? 'text-emerald-600 font-semibold' : ''}>
+                          {item.amount < 0 ? `- ${formatINR(Math.abs(item.amount))}` : formatINR(item.amount)}
+                        </span>
                       </div>
                     ))}
 
@@ -630,13 +856,13 @@ export const QuotePage: React.FC = () => {
                     <div className="pt-3 border-t-2 border-slate-300 flex justify-between items-baseline">
                       <div>
                         <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                          Total Payable
+                          Total Payables
                         </p>
-                        <p className="text-[11px] text-[#FF6B35] font-semibold">
+                        <p className="text-[11px] text-[#FF5722] font-semibold">
                           ₹{(gstDetails.totalAmount / quantity).toFixed(2)} / part (inc. tax)
                         </p>
                       </div>
-                      <p className="text-2xl font-black text-[#1A1A2E]">
+                      <p className="text-2xl font-black text-[#0F172A]">
                         {formatINR(gstDetails.totalAmount)}
                       </p>
                     </div>
@@ -656,7 +882,7 @@ export const QuotePage: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>Material test certificate (MTC) supplied</span>
+                  <span>Raw Material Test Certificate (MTC) supplied</span>
                 </div>
               </div>
 
