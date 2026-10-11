@@ -114,10 +114,10 @@ export const AuthPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAFBFC] flex flex-col font-sans selection:bg-[#FF6B35] selection:text-white">
+    <div className="min-h-screen bg-[#F8FAFC] flex flex-col font-sans selection:bg-[#FF5722] selection:text-white">
       <Navbar />
 
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex items-center justify-center">
+      <main className="flex-1 w-full max-w-5xl 2xl:max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-16 flex items-center justify-center">
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 card overflow-hidden border-slate-200 shadow-2xl">
           
           {/* Left Visual Column */}
