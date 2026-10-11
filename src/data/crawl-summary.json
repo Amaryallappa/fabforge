@@ -1,0 +1,42 @@
+{
+  "stats": {
+    "total": 4,
+    "success": 4,
+    "failed": 0,
+    "skipped": 0,
+    "assetsDownloaded": 442,
+    "startTime": "2026-10-11T18:40:37.359Z"
+  },
+  "totalPagesScraped": 4,
+  "durationMinutes": 0.7603666666666666,
+  "pages": [
+    {
+      "url": "https://www.xometry.com/",
+      "title": "Custom Manufacturing on Demand | Production Parts and Prototypes | Xometry",
+      "status": "success",
+      "assets": 112,
+      "file": "D:\\project\\fabrication industry\\xometry_clone\\output\\html\\index.html"
+    },
+    {
+      "url": "https://www.xometry.com/capabilities",
+      "title": "Xometry Manufacturing Capability Navigator | Xometry | On-Demand Manufactring for Custom Parts",
+      "status": "success",
+      "assets": 128,
+      "file": "D:\\project\\fabrication industry\\xometry_clone\\output\\html\\capabilities.html"
+    },
+    {
+      "url": "https://www.xometry.com/quoting",
+      "title": "Xometry Instant Quoting Engine® | Get a Custom Quote",
+      "status": "success",
+      "assets": 82,
+      "file": "D:\\project\\fabrication industry\\xometry_clone\\output\\html\\quoting.html"
+    },
+    {
+      "url": "https://www.xometry.com/materials",
+      "title": "Material selection guide for 3D printing, CNC machining, sheet metal fabrication, injection molding, and urethane casting",
+      "status": "success",
+      "assets": 120,
+      "file": "D:\\project\\fabrication industry\\xometry_clone\\output\\html\\materials.html"
+    }
+  ]
+}

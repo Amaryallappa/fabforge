@@ -1,0 +1,56 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+export type Database = {
+  public: {
+    Tables: {
+      quotes: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          file_name: string;
+          file_url: string | null;
+          material: string;
+          thickness_mm: number | null;
+          quantity: number;
+          process: string;
+          secondary_ops: string[];
+          price_inr: number;
+          status: 'pending' | 'confirmed' | 'in_production' | 'shipped' | 'delivered';
+          lead_time_days: number | null;
+          created_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['quotes']['Row'], 'id' | 'created_at'>;
+      };
+      orders: {
+        Row: {
+          id: string;
+          quote_id: string;
+          user_id: string;
+          razorpay_order_id: string | null;
+          razorpay_payment_id: string | null;
+          payment_status: string;
+          shipping_address: Record<string, string> | null;
+          gstin: string | null;
+          invoice_url: string | null;
+          created_at: string;
+        };
+      };
+      profiles: {
+        Row: {
+          id: string;
+          phone: string | null;
+          full_name: string | null;
+          company: string | null;
+          gstin: string | null;
+          state_code: string | null;
+          whatsapp_opted: boolean;
+        };
+      };
+    };
+  };
+};
