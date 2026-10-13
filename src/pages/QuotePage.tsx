@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   UploadCloud, 
@@ -16,7 +16,8 @@ import {
   FileCode,
   Gauge,
   Box,
-  Scale
+  Scale,
+  Sliders
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
@@ -25,7 +26,7 @@ import Footer from '../components/Footer';
 import { calculatePrice } from '../lib/pricing';
 import type { ProcessType, PriceResult } from '../lib/pricing';
 import { calculateGST, validateGSTIN, STATE_CODES, formatINR, FABFORGE_STATE_CODE } from '../lib/gst';
-import { analyzeCADFile } from '../lib/cadAnalyzer';
+import { analyzeCADFile, MATERIAL_DENSITIES } from '../lib/cadAnalyzer';
 import type { CADAnalysisResult } from '../lib/cadAnalyzer';
 import { supabase } from '../lib/supabase';
 import CADViewer from '../components/CADViewer';
@@ -34,26 +35,9 @@ export const QuotePage: React.FC = () => {
   const navigate = useNavigate();
 
   // Quote Configuration State
-  const [file, setFile] = useState<{ name: string; size: string } | null>({
-    name: 'bracket-chassis-v3.step',
-    size: '4.2 MB',
-  });
+  const [file, setFile] = useState<{ name: string; size: string } | null>(null);
   const [rawFile, setRawFile] = useState<File | null>(null);
-  const [cadResult, setCadResult] = useState<CADAnalysisResult | null>({
-    fileName: 'bracket-chassis-v3.step',
-    fileFormat: 'STEP',
-    fileSizeKb: 4300,
-    boundingBox: { widthMm: 210, lengthMm: 145, heightMm: 2.0 },
-    volumeMm3: 58800,
-    surfaceAreaMm2: 62000,
-    calculatedWeightKg: 0.466,
-    recommendedProcess: 'sheet_metal',
-    dfmChecks: {
-      passed: true,
-      issues: [],
-      warnings: ['DFM Feasibility Passed: Uniform 2.0mm gauge confirmed'],
-    },
-  });
+  const [cadResult, setCadResult] = useState<CADAnalysisResult | null>(null);
   const [isAnalyzingCAD, setIsAnalyzingCAD] = useState<boolean>(false);
 
   const [process, setProcess] = useState<ProcessType>('sheet_metal');
@@ -126,88 +110,133 @@ export const QuotePage: React.FC = () => {
     }
   };
 
-  // Real File Upload & CAD Geometry Parser
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const uploaded = e.target.files[0];
-      setRawFile(uploaded);
-      const sizeMb = (uploaded.size / (1024 * 1024)).toFixed(1);
-      setFile({
-        name: uploaded.name,
-        size: `${sizeMb} MB`,
-      });
+  const [isDragging, setIsDragging] = useState<boolean>(false);
 
-      setIsAnalyzingCAD(true);
-      toast.loading(`Parsing ${uploaded.name} geometry...`, { id: 'cad-parse' });
-
-      try {
-        const result = await analyzeCADFile(uploaded, material);
-        setCadResult(result);
-        if (result.recommendedProcess && result.recommendedProcess !== process) {
-          setProcess(result.recommendedProcess);
-        }
-        if (result.boundingBox?.heightMm && process === 'sheet_metal') {
-          const detectedThick = result.boundingBox.heightMm;
-          if ([1.0, 1.5, 2.0, 3.0, 5.0, 8.0].includes(detectedThick)) {
-            setThickness(detectedThick);
-          }
-        }
-        toast.success(`Extracted ${result.fileFormat}: ${result.boundingBox.widthMm}×${result.boundingBox.lengthMm}mm`, { id: 'cad-parse' });
-      } catch (err) {
-        toast.error('CAD file read warning; using baseline envelope', { id: 'cad-parse' });
-      } finally {
-        setIsAnalyzingCAD(false);
+  // Memoized model parse callback to avoid infinite re-render loops with CADViewer
+  const handleModelParsed = useCallback((exactResult: CADAnalysisResult) => {
+    setCadResult((prev) => {
+      if (
+        prev &&
+        prev.fileName === exactResult.fileName &&
+        prev.boundingBox?.widthMm === exactResult.boundingBox?.widthMm &&
+        prev.boundingBox?.lengthMm === exactResult.boundingBox?.lengthMm &&
+        prev.boundingBox?.heightMm === exactResult.boundingBox?.heightMm &&
+        prev.cutLengthMm === exactResult.cutLengthMm &&
+        prev.pierceCount === exactResult.pierceCount &&
+        prev.calculatedWeightKg === exactResult.calculatedWeightKg
+      ) {
+        return prev;
       }
+      return exactResult;
+    });
+  }, []);
+
+  // Common file processing handler
+  const processUploadedFile = async (uploaded: File) => {
+    setRawFile(uploaded);
+    const sizeMb = (uploaded.size / (1024 * 1024)).toFixed(1);
+    setFile({
+      name: uploaded.name,
+      size: `${sizeMb} MB`,
+    });
+
+    setIsAnalyzingCAD(true);
+    toast.loading(`Reading & parsing ${uploaded.name}...`, { id: 'cad-parse' });
+
+    // Check if filename specifies thickness (e.g. "4mm thik guage drw.DXF")
+    const nameMatch = uploaded.name.match(/(\d+(?:\.\d+)?)\s*mm/i);
+    if (nameMatch) {
+      const parsedT = parseFloat(nameMatch[1]);
+      if (!isNaN(parsedT) && parsedT > 0 && parsedT <= 50) {
+        setThickness(parsedT);
+      }
+    }
+
+    try {
+      const result = await analyzeCADFile(uploaded, material);
+      setCadResult(result);
+      if (result.recommendedProcess && result.recommendedProcess !== process) {
+        setProcess(result.recommendedProcess);
+      }
+      if (!nameMatch && result.boundingBox?.heightMm && process === 'sheet_metal') {
+        const detectedThick = result.boundingBox.heightMm;
+        if (detectedThick > 0 && detectedThick <= 50) {
+          setThickness(detectedThick);
+        }
+      }
+      toast.success(`Read ${result.fileFormat}: ${result.boundingBox.widthMm}×${result.boundingBox.lengthMm}×${result.boundingBox.heightMm}mm`, { id: 'cad-parse' });
+    } catch (err) {
+      toast.error('CAD file read warning; analyzing in 3D studio', { id: 'cad-parse' });
+    } finally {
+      setIsAnalyzingCAD(false);
     }
   };
 
-  // Quick synthetic demo file loaders
-  const loadSampleSTEP = () => {
-    setRawFile(null);
-    setFile({ name: 'chassis_bracket_sample.step', size: '2.8 MB' });
-    setCadResult({
-      fileName: 'chassis_bracket_sample.step',
-      fileFormat: 'STEP',
-      fileSizeKb: 2800,
-      boundingBox: { widthMm: 240, lengthMm: 160, heightMm: 2.0 },
-      volumeMm3: 76800,
-      surfaceAreaMm2: 78000,
-      calculatedWeightKg: 0.608,
-      recommendedProcess: 'sheet_metal',
-      dfmChecks: {
-        passed: true,
-        issues: [],
-        warnings: ['Watertight solid manifold confirmed', 'Ready for laser cutting & press brake'],
-      },
-    });
-    setThickness(2.0);
-    toast.success('Loaded Sample Chassis Bracket (STEP)');
+  // Real File Upload Handler (input change)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      await processUploadedFile(e.target.files[0]);
+    }
   };
 
-  const loadSampleDXF = () => {
-    setRawFile(null);
-    setFile({ name: 'motor_mount_flange.dxf', size: '1.2 MB' });
-    setCadResult({
-      fileName: 'motor_mount_flange.dxf',
-      fileFormat: 'DXF',
-      fileSizeKb: 1200,
-      boundingBox: { widthMm: 180, lengthMm: 180, heightMm: 3.0 },
-      cutLengthMm: 1420,
-      pierceCount: 8,
-      estimatedCutTimeSec: 28,
-      volumeMm3: 97200,
-      surfaceAreaMm2: 64800,
-      calculatedWeightKg: 0.763,
-      recommendedProcess: 'sheet_metal',
-      dfmChecks: {
-        passed: true,
-        issues: [],
-        warnings: ['8 Pierces detected', '1.42m total laser cut perimeter'],
-      },
-    });
-    setProcess('sheet_metal');
-    setThickness(3.0);
-    toast.success('Loaded Sample Motor Mount Flange (DXF)');
+  // Drag and Drop Handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      await processUploadedFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  // Quick demo file loaders with real files
+  const loadSampleSTEP = async () => {
+    setIsAnalyzingCAD(true);
+    toast.loading('Loading sample STEP file...', { id: 'cad-parse' });
+    try {
+      const res = await fetch('/samples/sample-bracket.step');
+      const blob = await res.blob();
+      const sampleFile = new File([blob], 'chassis_bracket_sample.step', { type: 'application/step' });
+      setRawFile(sampleFile);
+      setFile({ name: 'chassis_bracket_sample.step', size: `${(sampleFile.size / (1024 * 1024)).toFixed(1)} MB` });
+      const result = await analyzeCADFile(sampleFile, material);
+      setCadResult(result);
+      if (result.recommendedProcess) setProcess(result.recommendedProcess);
+      toast.success('Loaded Sample Chassis Bracket (STEP)', { id: 'cad-parse' });
+    } catch (err) {
+      toast.error('Failed to load sample STEP file', { id: 'cad-parse' });
+    } finally {
+      setIsAnalyzingCAD(false);
+    }
+  };
+
+  const loadSampleDXF = async () => {
+    setIsAnalyzingCAD(true);
+    toast.loading('Loading sample DXF file...', { id: 'cad-parse' });
+    try {
+      const res = await fetch('/samples/sample-flange.dxf');
+      const blob = await res.blob();
+      const sampleFile = new File([blob], 'motor_mount_flange.dxf', { type: 'application/dxf' });
+      setRawFile(sampleFile);
+      setFile({ name: 'motor_mount_flange.dxf', size: `${(sampleFile.size / 1024).toFixed(1)} KB` });
+      const result = await analyzeCADFile(sampleFile, material);
+      setCadResult(result);
+      setProcess('sheet_metal');
+      setThickness(3.0);
+      toast.success('Loaded Sample Motor Mount Flange (DXF)', { id: 'cad-parse' });
+    } catch (err) {
+      toast.error('Failed to load sample DXF file', { id: 'cad-parse' });
+    } finally {
+      setIsAnalyzingCAD(false);
+    }
   };
 
   // GST Breakdown calculations
@@ -227,8 +256,8 @@ export const QuotePage: React.FC = () => {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(50, 50, 50);
     doc.text('Digital Manufacturing & Rapid Prototyping Network', 20, 26);
-    doc.text('GSTIN: 27AABCF1234F1Z8 | HSN/SAC: 9988', 20, 31);
-    doc.text('Hub: MIDC Bhosari, Pune, Maharashtra 411026', 20, 36);
+    doc.text('GSTIN: 29AABCF1234F1Z8 | Operator: Amar (+91 8088201429)', 20, 31);
+    doc.text('Main Office & Hub: Plot 42, EPIP Industrial Zone, Whitefield, Bengaluru 560066', 20, 36);
 
     doc.setDrawColor(220, 220, 220);
     doc.line(20, 42, 190, 42);
@@ -387,18 +416,27 @@ export const QuotePage: React.FC = () => {
 
               {!file ? (
                 <div>
-                  <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 bg-slate-50/50 hover:bg-orange-50/20 hover:border-orange-400 rounded-2xl p-10 cursor-pointer transition-all">
-                    <UploadCloud className="w-10 h-10 text-slate-400 mb-2" />
+                  <label 
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={`flex flex-col items-center justify-center border-2 border-dashed ${
+                      isDragging 
+                        ? 'border-[#FF5722] bg-orange-50/60 ring-2 ring-orange-400' 
+                        : 'border-slate-300 bg-slate-50/50 hover:bg-orange-50/20 hover:border-orange-400'
+                    } rounded-2xl p-10 cursor-pointer transition-all`}
+                  >
+                    <UploadCloud className={`w-10 h-10 ${isDragging ? 'text-[#FF5722] animate-bounce' : 'text-slate-400'} mb-2`} />
                     <span className="text-sm font-bold text-slate-800">
-                      Click to browse or drag 3D/2D CAD files
+                      {isDragging ? 'Drop your CAD file here...' : 'Click to browse or drag 3D/2D CAD files'}
                     </span>
                     <span className="text-xs text-slate-400 mt-1">
-                      Accepts .STEP, .STP, .DXF, .DWG, .STL, .SLDPRT (Up to 100MB)
+                      Accepts .STEP, .STP, .DXF, .DWG, .STL, .OBJ, .IGES (Up to 100MB)
                     </span>
                     <input
                       type="file"
                       className="hidden"
-                      accept=".step,.stp,.dxf,.dwg,.stl,.sldprt"
+                      accept=".step,.stp,.STEP,.STP,.dxf,.DXF,.stl,.STL,.obj,.OBJ,.iges,.igs,.IGES,.IGS"
                       onChange={handleFileUpload}
                     />
                   </label>
@@ -440,7 +478,7 @@ export const QuotePage: React.FC = () => {
                         </div>
                         <p className="text-xs text-slate-500 mt-0.5">
                           {file.size} • {isAnalyzingCAD ? (
-                            <span className="text-orange-600 font-semibold animate-pulse">Analyzing CAD Geometry...</span>
+                            <span className="text-orange-600 font-semibold animate-pulse">Reading STEP CAD Topology...</span>
                           ) : (
                             <span className="text-emerald-600 font-semibold">DFM Geometry Verified</span>
                           )}
@@ -463,6 +501,7 @@ export const QuotePage: React.FC = () => {
                     rawFile={rawFile}
                     material={material}
                     thicknessMm={thickness}
+                    onModelParsed={handleModelParsed}
                     className="my-3"
                   />
 
@@ -474,7 +513,7 @@ export const QuotePage: React.FC = () => {
                           <Box className="w-3 h-3 text-orange-500" /> Bounding Box
                         </span>
                         <strong className="text-slate-900 font-bold">
-                          {cadResult.boundingBox.widthMm} × {cadResult.boundingBox.lengthMm} × {cadResult.boundingBox.heightMm} mm
+                          {cadResult.boundingBox.widthMm} × {cadResult.boundingBox.lengthMm} × {cadResult.fileFormat === 'DXF' || process === 'sheet_metal' ? thickness : cadResult.boundingBox.heightMm} mm
                         </strong>
                       </div>
 
@@ -483,7 +522,9 @@ export const QuotePage: React.FC = () => {
                           <Scale className="w-3 h-3 text-blue-500" /> Est. Part Weight
                         </span>
                         <strong className="text-slate-900 font-bold">
-                          {cadResult.calculatedWeightKg} kg
+                          {cadResult.fileFormat === 'DXF' || process === 'sheet_metal'
+                            ? Number(((cadResult.boundingBox.widthMm * cadResult.boundingBox.lengthMm * thickness * 0.85 * (MATERIAL_DENSITIES[material] ?? 7.85)) / 1000000).toFixed(3))
+                            : cadResult.calculatedWeightKg} kg
                         </strong>
                       </div>
 
@@ -614,11 +655,18 @@ export const QuotePage: React.FC = () => {
 
                 {/* Thickness / Gage */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                    Sheet Thickness (mm)
-                  </label>
-                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                    {[1.0, 1.5, 2.0, 3.0, 5.0, 8.0].map((t) => (
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Sheet Thickness (mm)
+                    </label>
+                    <span className="text-xs font-bold text-[#FF5722] bg-orange-50 px-2.5 py-0.5 rounded-full border border-orange-200">
+                      Selected: {thickness} mm
+                    </span>
+                  </div>
+
+                  {/* Standard Popular Gauge Pills */}
+                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5 mb-3">
+                    {[1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0].map((t) => (
                       <button
                         key={t}
                         type="button"
@@ -632,6 +680,41 @@ export const QuotePage: React.FC = () => {
                         {t} mm
                       </button>
                     ))}
+                  </div>
+
+                  {/* Custom User Thickness Input */}
+                  <div className="p-3 bg-slate-50/90 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-[#FF5722]" /> Custom Thickness Specification
+                      </span>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Input any custom sheet metal or plate thickness (0.1 mm to 50.0 mm)
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="relative w-32">
+                        <input
+                          id="custom-thickness-input"
+                          type="number"
+                          min="0.1"
+                          max="50"
+                          step="0.1"
+                          value={thickness}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            if (!isNaN(val) && val > 0 && val <= 100) {
+                              setThickness(val);
+                            }
+                          }}
+                          className="w-full pl-3 pr-8 py-1.5 text-xs font-bold text-slate-900 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF5722]/30 focus:border-[#FF5722]"
+                          placeholder="e.g. 4.0"
+                        />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-bold pointer-events-none">
+                          mm
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

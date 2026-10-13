@@ -1,0 +1,13 @@
+node_modules/
+.next/
+dist/
+build/
+.gradle/
+.idea/
+app/build/
+*.apk
+*.aab
+*.lock
+package-lock.json
+.env*
+*.keystore

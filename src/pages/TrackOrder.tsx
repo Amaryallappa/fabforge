@@ -32,7 +32,7 @@ export const TrackOrder: React.FC = () => {
     },
     {
       title: 'CNC Laser Cutting & Bending in Progress',
-      desc: 'Trumpf 6kW Fiber Laser cell at Bhosari MIDC hub',
+      desc: 'Trumpf 6kW Fiber Laser cell at Whitefield Bengaluru hub',
       date: '11 Oct, 11:00 AM',
       current: true,
       done: false,
@@ -107,13 +107,13 @@ export const TrackOrder: React.FC = () => {
 
             <div className="flex flex-wrap gap-2">
               <a
-                href={`https://wa.me/918047192000?text=Hi%20FabForge,%20tracking%20update%20for%20${searchId}`}
+                href={`https://wa.me/918088201429?text=Hi%20Amar,%20tracking%20update%20for%20${searchId}`}
                 target="_blank"
                 rel="noreferrer"
                 className="px-4 py-2 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-xs font-bold flex items-center gap-1.5 transition-colors"
               >
                 <MessageSquare className="w-3.5 h-3.5" />
-                WhatsApp Live Engineer
+                WhatsApp Operator (Amar)
               </a>
 
               <Link

@@ -15,6 +15,7 @@ import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { supabase } from '../lib/supabase';
 import { formatINR } from '../lib/gst';
+import { useAuth } from '../context/AuthContext';
 
 interface QuoteRecord {
   id: string;
@@ -28,6 +29,7 @@ interface QuoteRecord {
 }
 
 export const Dashboard: React.FC = () => {
+  const { user } = useAuth();
   const [quotes, setQuotes] = useState<QuoteRecord[]>([
     {
       id: 'ORD-IN-2026-001',
@@ -122,7 +124,13 @@ export const Dashboard: React.FC = () => {
               Customer & Procurement Dashboard
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Organization: <strong className="text-slate-800">AeroDynamics Robotics Pvt Ltd</strong> • GSTIN: <strong className="text-slate-800">27AABCA5555A1Z2</strong>
+              Organization: <strong className="text-slate-800">{user?.company || 'AeroDynamics Robotics Pvt Ltd'}</strong>
+              {user?.fullName && (
+                <> • User: <strong className="text-slate-800">{user.fullName}</strong></>
+              )}
+              {user?.gstin && (
+                <> • GSTIN: <strong className="text-slate-800">{user.gstin}</strong></>
+              )}
             </p>
           </div>
 
@@ -266,11 +274,11 @@ export const Dashboard: React.FC = () => {
               </h3>
             </div>
             <div className="bg-slate-50 p-4 rounded-xl text-xs space-y-1 text-slate-600">
-              <p className="font-bold text-slate-800">AeroDynamics Robotics Pvt Ltd</p>
+              <p className="font-bold text-slate-800">{user?.company || 'AeroDynamics Robotics Pvt Ltd'}</p>
               <p>Plot 42, EPIP Industrial Zone, Whitefield</p>
               <p>Bengaluru, Karnataka - 560066</p>
               <p className="pt-2 font-mono text-[11px] text-slate-500">
-                GSTIN: 27AABCA5555A1Z2 • State Code: 29 (Karnataka)
+                GSTIN: {user?.gstin || '29AABCA5555A1Z2'} • State Code: 29 (Karnataka)
               </p>
             </div>
           </div>
@@ -280,26 +288,27 @@ export const Dashboard: React.FC = () => {
               <div className="flex items-center gap-2 mb-3">
                 <CheckCircle2 className="w-5 h-5 text-emerald-500" />
                 <h3 className="text-sm font-bold text-slate-900">
-                  Assigned Account Manager
+                  Assigned Account Manager & Operator
                 </h3>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed mb-3">
-                Need high-volume quotation discount or custom DFM advice? Your dedicated FabForge application engineer is on standby.
+                Need high-volume quotation discount or custom DFM advice? Your dedicated FabForge operator and application engineer is on standby.
               </p>
               <div className="text-xs text-slate-700 space-y-1">
-                <p><strong>Engineer:</strong> Vikram Deshmukh (Pune MIDC Hub)</p>
-                <p><strong>Direct Line:</strong> +91 (80) 4719 2000 (Ext. 402)</p>
+                <p><strong>Operator:</strong> Amar (Whitefield Bengaluru Hub)</p>
+                <p><strong>Mobile / Direct Line:</strong> +91 8088201429</p>
+                <p><strong>Main Office:</strong> Plot 42, EPIP Industrial Zone, Whitefield, Bengaluru, Karnataka - 560066</p>
               </div>
             </div>
 
             <div className="pt-4 mt-4 border-t border-slate-100">
               <a
-                href="https://wa.me/918047192000?text=Hi%20FabForge,%20I%20need%20custom%20DFM%20consultation"
+                href="https://wa.me/918088201429?text=Hi%20Amar,%20I%20need%20custom%20DFM%20consultation"
                 target="_blank"
                 rel="noreferrer"
                 className="btn-outline w-full text-xs py-2 text-center block"
               >
-                Chat on WhatsApp Business
+                Chat on WhatsApp (+91 8088201429)
               </a>
             </div>
           </div>

@@ -23,7 +23,7 @@ export const Footer: React.FC = () => {
             <div className="space-y-2 pt-2 text-xs text-slate-400">
               <div className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-emerald-400" />
-                <span>GST Registered: <strong className="text-slate-200">27AABCF1234F1Z8</strong> (Maharashtra)</span>
+                <span>GST Registered: <strong className="text-slate-200">29AABCF1234F1Z8</strong> (Karnataka)</span>
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -31,7 +31,7 @@ export const Footer: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-[#FF6B35]" />
-                <span>Hubs: Pune MIDC • Bengaluru Peenya • Chennai Ambattur • Manesar</span>
+                <span>Main Office & Hub: Plot 42, EPIP Industrial Zone, Whitefield, Bengaluru - 560066</span>
               </div>
             </div>
           </div>
@@ -122,8 +122,8 @@ export const Footer: React.FC = () => {
             <ul className="space-y-3 text-sm">
               <li className="flex items-center gap-2">
                 <Phone className="w-4 h-4 text-emerald-400" />
-                <a href="tel:+918047192000" className="hover:text-white transition-colors">
-                  +91 (80) 4719 2000
+                <a href="tel:+918088201429" className="hover:text-white transition-colors">
+                  +91 8088201429 (Operator: Amar)
                 </a>
               </li>
               <li className="flex items-center gap-2">
@@ -132,7 +132,11 @@ export const Footer: React.FC = () => {
                   quotes@fabforge.in
                 </a>
               </li>
-              <li className="pt-2">
+              <li className="flex items-start gap-2 text-xs text-slate-400">
+                <MapPin className="w-4 h-4 text-[#FF6B35] shrink-0 mt-0.5" />
+                <span>Plot 42, EPIP Industrial Zone, Whitefield, Bengaluru, KA - 560066</span>
+              </li>
+              <li className="pt-1">
                 <Link
                   to="/track/ORD-IN-2026-001"
                   className="inline-block text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
@@ -141,10 +145,15 @@ export const Footer: React.FC = () => {
                 </Link>
               </li>
               <li>
-                <div className="p-3 rounded-lg bg-slate-800/80 border border-slate-700 text-xs">
-                  <p className="text-emerald-400 font-semibold mb-1">WhatsApp Live Desk</p>
-                  <p className="text-slate-400">Instant quoting assistance & CAD file review 9 AM - 8 PM IST</p>
-                </div>
+                <a
+                  href="https://wa.me/918088201429?text=Hi%20Amar,%20I%20need%20quoting%20assistance"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block p-3 rounded-lg bg-slate-800/80 border border-slate-700 text-xs hover:border-emerald-500/50 transition-colors"
+                >
+                  <p className="text-emerald-400 font-semibold mb-1">WhatsApp Live Desk (Amar)</p>
+                  <p className="text-slate-400">Direct Line: +91 8088201429 • Whitefield Main Office</p>
+                </a>
               </li>
             </ul>
           </div>

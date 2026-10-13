@@ -1,6 +1,6 @@
 /** GST utilities for Indian tax compliance */
 
-export const FABFORGE_STATE_CODE = '27'; // Maharashtra (MH)
+export const FABFORGE_STATE_CODE = '29'; // Karnataka (KA) - Whitefield, Bengaluru
 
 export const STATE_CODES: Record<string, string> = {
   '27': 'Maharashtra', '07': 'Delhi', '09': 'Uttar Pradesh',
