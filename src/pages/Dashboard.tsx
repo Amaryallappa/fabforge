@@ -13,7 +13,7 @@ import {
 import toast from 'react-hot-toast';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { formatINR } from '../lib/gst';
 import { useAuth } from '../context/AuthContext';
 
@@ -66,6 +66,7 @@ export const Dashboard: React.FC = () => {
   // Load quotes from Supabase if connected
   useEffect(() => {
     async function fetchQuotes() {
+      if (!isSupabaseConfigured) return;
       try {
         const { data } = await supabase
           .from('quotes')

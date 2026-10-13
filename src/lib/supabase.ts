@@ -1,7 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
+const rawUrl = import.meta.env.VITE_SUPABASE_URL;
+const rawAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+export const isSupabaseConfigured = Boolean(
+  rawUrl &&
+  rawAnonKey &&
+  rawUrl.startsWith('http') &&
+  !rawUrl.includes('your-project')
+);
+
+// Fallback to valid URL so createClient does not throw in production without .env
+const supabaseUrl = isSupabaseConfigured ? rawUrl : 'https://demo-project.supabase.co';
+const supabaseAnonKey = isSupabaseConfigured ? rawAnonKey : 'demo-anon-key';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 

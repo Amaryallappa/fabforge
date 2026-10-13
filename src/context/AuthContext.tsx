@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
 export interface AuthUser {
@@ -34,23 +34,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let mounted = true;
 
     async function initSession() {
-      try {
-        const { data } = await supabase.auth.getSession();
-        if (data?.session?.user && mounted) {
-          const u = data.session.user;
-          setUser({
-            id: u.id,
-            email: u.email,
-            phone: u.phone,
-            fullName: u.user_metadata?.full_name || u.user_metadata?.name || '',
-            company: u.user_metadata?.company || '',
-            gstin: u.user_metadata?.gstin || '',
-          });
-          setLoading(false);
-          return;
+      if (isSupabaseConfigured) {
+        try {
+          const { data } = await supabase.auth.getSession();
+          if (data?.session?.user && mounted) {
+            const u = data.session.user;
+            setUser({
+              id: u.id,
+              email: u.email,
+              phone: u.phone,
+              fullName: u.user_metadata?.full_name || u.user_metadata?.name || '',
+              company: u.user_metadata?.company || '',
+              gstin: u.user_metadata?.gstin || '',
+            });
+            setLoading(false);
+            return;
+          }
+        } catch {
+          // Fallback to demo storage
         }
-      } catch (err) {
-        // Supabase offline/demo fallback
       }
 
       // Check saved session in localStorage
@@ -67,34 +69,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initSession();
 
-    // Listen to Supabase auth events
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        const u = session.user;
-        const mappedUser: AuthUser = {
-          id: u.id,
-          email: u.email,
-          phone: u.phone,
-          fullName: u.user_metadata?.full_name || u.user_metadata?.name || '',
-          company: u.user_metadata?.company || '',
-          gstin: u.user_metadata?.gstin || '',
-        };
-        setUser(mappedUser);
-        localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(mappedUser));
-      } else {
-        // If not in session, keep fallback demo user if present or clear
+    let unsubscribe = () => {};
+    if (isSupabaseConfigured) {
+      const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (session?.user) {
+          const u = session.user;
+          const mappedUser: AuthUser = {
+            id: u.id,
+            email: u.email,
+            phone: u.phone,
+            fullName: u.user_metadata?.full_name || u.user_metadata?.name || '',
+            company: u.user_metadata?.company || '',
+            gstin: u.user_metadata?.gstin || '',
+          };
+          setUser(mappedUser);
+          localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(mappedUser));
+        }
+      });
+      if (authListener?.subscription) {
+        unsubscribe = () => authListener.subscription.unsubscribe();
       }
-    });
+    }
 
     return () => {
       mounted = false;
-      authListener?.subscription?.unsubscribe();
+      unsubscribe();
     };
   }, []);
 
   // Send Mobile OTP
   const signInWithOtp = async (phone: string, isSignUp = false): Promise<{ error?: string }> => {
     const fullPhone = phone.startsWith('+91') ? phone : `+91${phone}`;
+    if (!isSupabaseConfigured) {
+      return {};
+    }
     try {
       const { error } = await supabase.auth.signInWithOtp({
         phone: fullPhone,
@@ -119,6 +127,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     profileData?: Partial<AuthUser>
   ): Promise<{ error?: string }> => {
     const fullPhone = phone.startsWith('+91') ? phone : `+91${phone}`;
+    if (!isSupabaseConfigured) {
+      const activeUser: AuthUser = {
+        id: `user_${Date.now()}`,
+        phone: fullPhone,
+        email: profileData?.email || '',
+        fullName: profileData?.fullName || (profileData?.email ? profileData.email.split('@')[0] : 'Manufacturing Partner'),
+        company: profileData?.company || 'AeroDynamics Robotics Pvt Ltd',
+        gstin: profileData?.gstin || '',
+      };
+      setUser(activeUser);
+      localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(activeUser));
+      return {};
+    }
+
     try {
       const { data, error } = await supabase.auth.verifyOtp({
         phone: fullPhone,
@@ -127,7 +149,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error) {
-        console.warn('Supabase verifyOtp notice (using simulated demo login):', error.message);
+        console.warn('Supabase verifyOtp notice:', error.message);
       }
 
       const activeUser: AuthUser = {
@@ -158,6 +180,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Sign In with Email & Password
   const signInWithPassword = async (email: string, password: string): Promise<{ error?: string }> => {
+    if (!isSupabaseConfigured) {
+      const loggedUser: AuthUser = {
+        id: `usr_${Date.now().toString().slice(-6)}`,
+        email,
+        fullName: email.split('@')[0],
+        company: 'AeroDynamics Robotics Pvt Ltd',
+      };
+      setUser(loggedUser);
+      localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(loggedUser));
+      return {};
+    }
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -165,7 +199,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error) {
-        // Fallback for development/offline test credentials
         if (password.length >= 6) {
           const fallbackUser: AuthUser = {
             id: `usr_${Date.now().toString().slice(-6)}`,
@@ -215,6 +248,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password: string,
     profileData: Partial<AuthUser>
   ): Promise<{ error?: string }> => {
+    if (!isSupabaseConfigured) {
+      const newUser: AuthUser = {
+        id: `usr_${Date.now().toString().slice(-6)}`,
+        email,
+        phone: profileData.phone,
+        fullName: profileData.fullName || email.split('@')[0],
+        company: profileData.company || 'Manufacturing Client',
+        gstin: profileData.gstin || '',
+      };
+      setUser(newUser);
+      localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(newUser));
+      return {};
+    }
+
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -245,7 +292,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(newUser);
       localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(newUser));
       return {};
-    } catch (err: any) {
+    } catch {
       const newUser: AuthUser = {
         id: `usr_${Date.now().toString().slice(-6)}`,
         email,
