@@ -69,7 +69,7 @@ export const Dashboard: React.FC = () => {
       if (!isSupabaseConfigured) return;
       try {
         const { data } = await supabase
-          .from('quotes')
+          .from('fabforge_quotes')
           .select('*')
           .order('created_at', { ascending: false })
           .limit(10);

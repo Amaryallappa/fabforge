@@ -4,19 +4,19 @@
 -- ========================================================
 
 -- 1. Profiles Table (Indian SME buyers & machinists)
-create table if not exists public.profiles (
+create table if not exists public.fabforge_profiles (
   id uuid references auth.users on delete cascade primary key,
   phone text unique,
   full_name text,
   company text,
   gstin text,
-  state_code text default '27', -- Maharashtra default
+  state_code text default '29', -- Karnataka default (Whitefield, Bengaluru)
   whatsapp_opted boolean default true,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
 -- 2. Quotes Table
-create table if not exists public.quotes (
+create table if not exists public.fabforge_quotes (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users on delete set null,
   file_name text not null,
@@ -33,9 +33,9 @@ create table if not exists public.quotes (
 );
 
 -- 3. Orders Table (Razorpay & GST Tracking)
-create table if not exists public.orders (
+create table if not exists public.fabforge_orders (
   id uuid default gen_random_uuid() primary key,
-  quote_id uuid references public.quotes on delete cascade not null,
+  quote_id uuid references public.fabforge_quotes on delete cascade not null,
   user_id uuid references auth.users on delete set null,
   razorpay_order_id text,
   razorpay_payment_id text,
@@ -49,35 +49,35 @@ create table if not exists public.orders (
 -- ========================================================
 -- Row Level Security (RLS) Policies
 -- ========================================================
-alter table public.profiles enable row level security;
-alter table public.quotes enable row level security;
-alter table public.orders enable row level security;
+alter table public.fabforge_profiles enable row level security;
+alter table public.fabforge_quotes enable row level security;
+alter table public.fabforge_orders enable row level security;
 
 -- Profiles: Users can view & update their own profile
 create policy "Users can view own profile"
-  on public.profiles for select
+  on public.fabforge_profiles for select
   using (auth.uid() = id);
 
 create policy "Users can update own profile"
-  on public.profiles for update
+  on public.fabforge_profiles for update
   using (auth.uid() = id);
 
 -- Quotes: Users can view their own quotes or anonymous public quotes
 create policy "Anyone can create quotes"
-  on public.quotes for insert
+  on public.fabforge_quotes for insert
   with check (true);
 
 create policy "Users can view own quotes"
-  on public.quotes for select
+  on public.fabforge_quotes for select
   using (auth.uid() = user_id or user_id is null);
 
 -- Orders: Users can view their own orders
 create policy "Users can view own orders"
-  on public.orders for select
+  on public.fabforge_orders for select
   using (auth.uid() = user_id);
 
 create policy "Users can insert own orders"
-  on public.orders for insert
+  on public.fabforge_orders for insert
   with check (auth.uid() = user_id or user_id is null);
 
 -- ========================================================

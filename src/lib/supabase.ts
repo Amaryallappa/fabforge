@@ -19,7 +19,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export type Database = {
   public: {
     Tables: {
-      quotes: {
+      fabforge_quotes: {
         Row: {
           id: string;
           user_id: string | null;
@@ -35,9 +35,9 @@ export type Database = {
           lead_time_days: number | null;
           created_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['quotes']['Row'], 'id' | 'created_at'>;
+        Insert: Omit<Database['public']['Tables']['fabforge_quotes']['Row'], 'id' | 'created_at'>;
       };
-      orders: {
+      fabforge_orders: {
         Row: {
           id: string;
           quote_id: string;
@@ -51,7 +51,7 @@ export type Database = {
           created_at: string;
         };
       };
-      profiles: {
+      fabforge_profiles: {
         Row: {
           id: string;
           phone: string | null;
