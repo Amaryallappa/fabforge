@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   ArrowRight, 
   Flame, 
@@ -12,14 +12,13 @@ import {
   Building2, 
   User, 
   ShieldCheck,
-  RefreshCw,
-  Sparkles
+  RefreshCw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { useAuth } from '../context/AuthContext';
-import { validateGSTIN, getStateFromGSTIN } from '../lib/gst';
+import { getStateFromGSTIN } from '../lib/gst';
 
 export const AuthPage: React.FC = () => {
   const navigate = useNavigate();
